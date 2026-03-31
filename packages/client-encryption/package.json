@@ -21,7 +21,7 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src --ext .ts --config ../../apps/demo/eslint.config.mjs"
+    "lint": "eslint src --ext .ts"
   },
   "dependencies": {
     "@harrison/pseudonymization": "0.1.0",

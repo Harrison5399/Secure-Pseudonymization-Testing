@@ -1,5 +1,4 @@
 
 > @harrison/client-encryption@0.1.0 lint
-> eslint src --ext .ts --config ../../apps/demo/eslint.config.mjs
+> eslint src --ext .ts
 
-Pages directory cannot be found at C:\Users\harri\files\llmanonimization\packages\client-encryption\pages or C:\Users\harri\files\llmanonimization\packages\client-encryption\src\pages. If using a custom path, please configure with the `no-html-link-for-pages` rule in your eslint config file.

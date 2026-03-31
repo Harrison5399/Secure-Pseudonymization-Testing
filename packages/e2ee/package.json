@@ -21,7 +21,7 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src --ext .ts --config ../../apps/demo/eslint.config.mjs"
+    "lint": "eslint src --ext .ts"
   },
   "dependencies": {
     "@privacyresearch/libsignal-protocol-typescript": "^0.0.16"
