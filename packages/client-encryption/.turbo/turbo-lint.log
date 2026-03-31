@@ -1,4 +1,0 @@
-
-> @harrison/client-encryption@0.1.0 lint
-> eslint src --ext .ts
-
