@@ -67,6 +67,7 @@ type E2EEPacketV1 = {
 };
 
 type E2EECopy = {
+  forUserId: string;
   deviceId: string;
   keyId: string;
   keyVersion: string;
@@ -94,6 +95,8 @@ type E2EEPacketV2 = {
 type E2EEPacketV3 = {
   version: "email-e2ee-v3";
   algorithm: "X25519+AES-256-GCM";
+  senderUserId: string;
+  recipientUserId: string;
   senderEmail: string;
   recipientEmail: string;
   senderPublicB64: string;
@@ -250,6 +253,8 @@ function parsePacket(content: string): ParsedPacket | null {
 
     if (
       value.version === "email-e2ee-v3" &&
+      typeof value.senderUserId === "string" &&
+      typeof value.recipientUserId === "string" &&
       typeof value.senderEmail === "string" &&
       typeof value.recipientEmail === "string" &&
       typeof value.senderPublicB64 === "string" &&
@@ -707,6 +712,7 @@ export default function E2EEClientDemo({ sessionUser }: Props) {
         const recipientEncrypted = await encryptRatchetMessage(messageInput, recipientMessageKey);
 
         recipientCopies.push({
+          forUserId: recipientLookup.user?.id ?? "",
           deviceId: recipientDevice.deviceId,
           keyId: recipientDevice.keyId,
           keyVersion: recipientDevice.keyVersion,
@@ -723,6 +729,7 @@ export default function E2EEClientDemo({ sessionUser }: Props) {
         const senderEncrypted = await encryptRatchetMessage(messageInput, senderMessageKey);
 
         senderCopies.push({
+          forUserId: sessionUser.id,
           deviceId: senderDevice.deviceId,
           keyId: senderDevice.keyId,
           keyVersion: senderDevice.keyVersion,
@@ -734,6 +741,8 @@ export default function E2EEClientDemo({ sessionUser }: Props) {
       const packet: E2EEPacketV3 = {
         version: "email-e2ee-v3",
         algorithm: "X25519+AES-256-GCM",
+        senderUserId: sessionUser.id,
+        recipientUserId: recipientLookup.user?.id ?? "",
         senderEmail: sessionUser.email ?? "unknown@local",
         recipientEmail: targetEmail,
         senderPublicB64: local.identityPublicB64,
@@ -807,7 +816,7 @@ export default function E2EEClientDemo({ sessionUser }: Props) {
       let plaintext = "";
 
       if (packet.version === "email-e2ee-v2") {
-        const isRecipient = message.recipient.email === sessionUser.email;
+        const isRecipient = message.recipientId === sessionUser.id;
         const targetCopy = isRecipient ? packet.copies.recipient : packet.copies.sender;
         const localKey = ring.keys.find((key) => key.keyId === targetCopy.keyId);
 
@@ -827,28 +836,59 @@ export default function E2EEClientDemo({ sessionUser }: Props) {
 
         plaintext = await decryptRatchetMessage(targetCopy.ciphertextB64, targetCopy.ivB64, messageKeyB64);
       } else if (packet.version === "email-e2ee-v3") {
-        const isRecipient = message.recipient.email === sessionUser.email;
-        const candidateCopies = isRecipient ? packet.copies.recipient : packet.copies.sender;
+        const isRecipient = message.recipientId === sessionUser.id;
+        const allDirectionalCopies = isRecipient ? packet.copies.recipient : packet.copies.sender;
+        const candidateCopies = allDirectionalCopies.filter((copy) => copy.forUserId === sessionUser.id);
+        const activeKeyId = ring.activeKeyId;
+        const localKeySet = new Set(ring.keys.map((key) => key.keyId));
         const currentDeviceId = getOrCreateDeviceId(sessionUser.id);
 
-        const preferredCopy =
-          candidateCopies.find((copy) => copy.deviceId === currentDeviceId && ring.keys.some((key) => key.keyId === copy.keyId)) ??
-          candidateCopies.find((copy) => ring.keys.some((key) => key.keyId === copy.keyId));
-
-        if (!preferredCopy) {
-          throw new Error("No decryptable copy found for this device. This device may not have been registered when the message was sent.");
+        if (candidateCopies.length === 0) {
+          throw new Error("No encrypted copy exists for this user in the packet.");
         }
 
-        const localKey = ring.keys.find((key) => key.keyId === preferredCopy.keyId);
-        if (!localKey) {
-          throw new Error(`Missing local key ${preferredCopy.keyId}. Import/restore your historical keys for this device.`);
+        const failureReasons: string[] = [];
+        let decrypted = false;
+
+        // Deterministic selection order: exact device+active key, device-local keys, then any matching key-id.
+        const prioritizedCopies = [
+          ...candidateCopies.filter((copy) => copy.deviceId === currentDeviceId && copy.keyId === activeKeyId),
+          ...candidateCopies.filter((copy) => copy.deviceId === currentDeviceId && localKeySet.has(copy.keyId)),
+          ...candidateCopies.filter((copy) => copy.deviceId !== currentDeviceId && copy.keyId === activeKeyId),
+          ...candidateCopies.filter((copy) => copy.deviceId !== currentDeviceId && localKeySet.has(copy.keyId)),
+        ];
+        const uniquePrioritizedCopies = prioritizedCopies.filter(
+          (copy, idx, arr) => arr.findIndex((c) => c.deviceId === copy.deviceId && c.keyId === copy.keyId) === idx,
+        );
+
+        for (const copy of uniquePrioritizedCopies) {
+          const localKey = ring.keys.find((key) => key.keyId === copy.keyId);
+          if (!localKey) {
+            continue;
+          }
+
+          try {
+            const localPrivate = await importX25519PrivateKey(localKey.identityPrivatePkcs8B64);
+            const peerPublic = await importX25519PublicKey(packet.senderPublicB64);
+            const sharedSecretB64 = await deriveSharedSecretB64(localPrivate, peerPublic);
+            const messageKeyB64 = await deriveMessageKeyB64(sharedSecretB64);
+            plaintext = await decryptRatchetMessage(copy.ciphertextB64, copy.ivB64, messageKeyB64);
+            decrypted = true;
+            break;
+          } catch (error) {
+            failureReasons.push(
+              `copy ${copy.keyId} failed: ${error instanceof Error ? error.message : "decrypt error"}`,
+            );
+          }
         }
 
-        const localPrivate = await importX25519PrivateKey(localKey.identityPrivatePkcs8B64);
-        const peerPublic = await importX25519PublicKey(packet.senderPublicB64);
-        const sharedSecretB64 = await deriveSharedSecretB64(localPrivate, peerPublic);
-        const messageKeyB64 = await deriveMessageKeyB64(sharedSecretB64);
-        plaintext = await decryptRatchetMessage(preferredCopy.ciphertextB64, preferredCopy.ivB64, messageKeyB64);
+        if (!decrypted) {
+          const localKeyIds = ring.keys.map((key) => key.keyId);
+          const copyKeyIds = candidateCopies.map((copy) => copy.keyId);
+          throw new Error(
+            `No decryptable copy found. Local keys: [${localKeyIds.join(", ")}], packet copy keys: [${copyKeyIds.join(", ")}]. ${failureReasons.slice(0, 2).join(" | ")}`,
+          );
+        }
       } else {
         const activeKey = ring.keys.find((key) => key.keyId === ring.activeKeyId) ?? ring.keys[0];
         const receiverPrivate = await importX25519PrivateKey(activeKey.identityPrivatePkcs8B64);
@@ -865,12 +905,12 @@ export default function E2EEClientDemo({ sessionUser }: Props) {
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Decrypt failed.";
       setMessageStatus(reason);
-      setMsgRetrievedClient((prev) => ({
-        previous: prev,
+      setMsgRetrievedClient({
+        previous: msgRetrievedClient,
         stage: "decrypt",
         error: reason,
         diagnostics: runtimeDiagnostics,
-      }));
+      });
       setDecryptErrors((prev) => ({ ...prev, [message.id]: reason }));
     } finally {
       setBusy(false);
