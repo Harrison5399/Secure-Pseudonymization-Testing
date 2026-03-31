@@ -5,6 +5,10 @@ Educational Next.js app that demonstrates two related privacy workflows:
 - LLM anonymization + reversible deanonymization.
 - Authenticated client-side encryption and E2EE-inspired messaging concepts.
 
+Monorepo architecture reference:
+
+- See `MONOREPO.md` for a full guide to this Turborepo/npm-workspaces setup and migration structure.
+
 ## What this app includes
 
 ### 1) Anonymization demo

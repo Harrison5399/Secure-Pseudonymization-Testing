@@ -1,0 +1,4 @@
+
+> @harrison/client-encryption@0.1.0 typecheck
+> tsc --noEmit
+

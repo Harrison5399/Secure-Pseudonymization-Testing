@@ -2,11 +2,20 @@
   "name": "llmanonimization",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "npm@11.6.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "turbo": "turbo",
+    "build:repo": "turbo run build",
+    "lint:repo": "turbo run lint",
+    "typecheck:repo": "turbo run typecheck",
+    "dev": "npm run dev -w @harrison/demo",
+    "build": "npm run build -w @harrison/demo",
+    "start": "npm run start -w @harrison/demo",
+    "lint": "npm run lint -w @harrison/demo"
   },
   "dependencies": {
     "@next-auth/prisma-adapter": "^1.0.7",
@@ -31,6 +40,8 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.1",
     "tailwindcss": "^4",
+    "tsup": "^8.5.0",
+    "turbo": "^2.5.6",
     "typescript": "^5"
   }
 }

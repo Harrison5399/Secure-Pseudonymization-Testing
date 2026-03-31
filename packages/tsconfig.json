@@ -1,0 +1,8 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./pseudonymization" },
+    { "path": "./client-encryption" },
+    { "path": "./e2ee" }
+  ]
+}
